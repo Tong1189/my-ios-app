@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "395057839537",
+    "project_id": "yizhi-ange",
+    "storage_bucket": "yizhi-ange.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:395057839537:android:6475079c441555d21c5190",
+        "android_client_info": {
+          "package_name": "com.example.myapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "395057839537-21dh2ip8krisq9qels7neup47fcivle6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBt7195S6cirY4z6nF1IiNt1rEkb_1A2eI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "395057839537-21dh2ip8krisq9qels7neup47fcivle6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "395057839537-4lafjqfqkosasi4eth8pcrj06nlg99hf.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.myapp.RunnerTests"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
