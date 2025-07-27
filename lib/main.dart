@@ -1,345 +1,591 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_saver/file_saver.dart';
-import 'package:csv/csv.dart';
-import 'dart:typed_data';
-import 'firebase_options.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
+import 'dart:async';
+import 'package:provider/provider.dart';
+
+import 'firebase_options.dart'; // 确保这个文件存在并包含您的 Firebase 配置
+import 'auth_screen.dart'; // 稍后创建
+import 'item_provider.dart'; // 稍后创建
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => ItemProvider()),
+      ],
+      child: MyApp(),
+    ),
+  );
+}
+
+class ThemeProvider with ChangeNotifier {
+  ThemeMode _themeMode = ThemeMode.system; // Default to system theme
+
+  ThemeMode get themeMode => _themeMode;
+
+  void toggleTheme() {
+    _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+    notifyListeners();
+  }
+
+  void setSystemTheme() {
+    _themeMode = ThemeMode.system;
+    notifyListeners();
+  }
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  MyApp({super.key});
+
+  final GoRouter _router = GoRouter(
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/',
+        redirect: (BuildContext context, GoRouterState state) {
+          // 重定向逻辑：如果用户未登录，则重定向到登录页面
+          if (FirebaseAuth.instance.currentUser == null) {
+            return '/login';
+          }
+          return '/home';
+        },
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (BuildContext context, GoRouterState state) {
+          return AuthScreen();
+        },
+      ),
+      GoRoute(
+        path: '/home',
+        builder: (BuildContext context, GoRouterState state) {
+          return HomeScreen();
+        },
+      ),
+    ],
+    // 监听认证状态变化，以便在用户登录/登出时重定向
+    refreshListenable: GoRouterRefreshStream(FirebaseAuth.instance.authStateChanges()),
+  );
 
   @override
   Widget build(BuildContext context) {
-    const Color primarySeedColor = Colors.lightBlue;
+    final themeProvider = Provider.of<ThemeProvider>(context);
 
-    final TextTheme appTextTheme = TextTheme(
-      displayLarge: GoogleFonts.oswald(fontSize: 57, fontWeight: FontWeight.bold),
-      titleLarge: GoogleFonts.roboto(fontSize: 22, fontWeight: FontWeight.w500),
-      bodyMedium: GoogleFonts.openSans(fontSize: 14),
-      labelLarge: GoogleFonts.roboto(fontSize: 16, fontWeight: FontWeight.w500),
-    );
-
-    final ThemeData theme = ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: primarySeedColor,
-        brightness: Brightness.light,
-      ),
-      textTheme: appTextTheme,
-      appBarTheme: AppBarTheme(
-        backgroundColor: primarySeedColor,
-        foregroundColor: Colors.white,
-        titleTextStyle: GoogleFonts.oswald(fontSize: 24, fontWeight: FontWeight.bold),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          foregroundColor: Colors.white,
-          backgroundColor: primarySeedColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          textStyle: GoogleFonts.roboto(fontSize: 16, fontWeight: FontWeight.w500),
+    return MaterialApp.router(
+      title: '货物出货计算APP',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        textTheme: GoogleFonts.latoTextTheme(
+          Theme.of(context).textTheme,
         ),
       ),
-    );
-
-    return MaterialApp(
-      title: '货物计算器',
-      theme: theme,
-      home: const AuthWrapper(),
-    );
-  }
-}
-
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasData) {
-          return const HomeScreen();
-        }
-        return const LoginScreen();
-      },
-    );
-  }
-}
-
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
-
-  @override
-  LoginScreenState createState() => LoginScreenState();
-}
-
-class LoginScreenState extends State<LoginScreen> {
-  final _auth = FirebaseAuth.instance;
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isLogin = true;
-
-  Future<void> _submit() async {
-    try {
-      if (_isLogin) {
-        await _auth.signInWithEmailAndPassword(
-          email: _emailController.text,
-          password: _passwordController.text,
-        );
-      } else {
-        await _auth.createUserWithEmailAndPassword(
-          email: _emailController.text,
-          password: _passwordController.text,
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? '登录失败.')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(_isLogin ? '登录' : '注册')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: '邮箱'),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: '密码'),
-              obscureText: true,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _submit,
-              child: Text(_isLogin ? '登录' : '注册'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _isLogin = !_isLogin;
-                });
-              },
-              child: Text(_isLogin ? '创建新账户' : '我已有账户'),
-            ),
-          ],
+      darkTheme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        brightness: Brightness.dark,
+        textTheme: GoogleFonts.latoTextTheme(
+          Theme.of(context).textTheme,
         ),
       ),
+      themeMode: themeProvider.themeMode,
+      routerConfig: _router,
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
+// 用于 GoRouter 监听 Stream 的辅助类
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen(
+          (dynamic _) => notifyListeners(),
+        );
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
+// HomeScreen 保持不变，但现在它将从 ItemProvider 获取数据
+class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
   @override
-  HomeScreenState createState() => HomeScreenState();
-}
-
-class HomeScreenState extends State<HomeScreen> {
-  final _firestore = FirebaseFirestore.instance;
-  final _auth = FirebaseAuth.instance;
-  String _sortOption = 'name';
-  bool _sortAscending = true;
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('货物列表'),
-        actions: [
-          DropdownButton<String>(
-            value: _sortOption,
-            onChanged: (String? newValue) {
-              setState(() {
-                _sortOption = newValue!;
-              });
-            },
-            items: <String>['name', 'price', 'quantity']
-                .map<DropdownMenuItem<String>>((String value) {
-              return DropdownMenuItem<String>(
-                value: value,
-                child: Text('按${_getSortOptionName(value)}排序'),
+      backgroundColor: const Color(0xFFf8f9fa),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildTopBar(context), // 传递 context
+            Expanded(
+              child: ListView(
+                children: [
+                  _buildStatsCard(),
+                  _buildVehicleSelection(),
+                  _buildItemManagement(context), // 传递 context
+                  _buildShareSection(context),
+                  _buildHistorySection(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: _buildBottomNavBar(context),
+    );
+  }
+
+  Widget _buildTopBar(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.white,
+      child: Row(
+        children: [
+          const CircleAvatar(
+            backgroundImage: NetworkImage('https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=face'),
+          ),
+          const SizedBox(width: 12),
+          const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('张师傅', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('出货管理', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+          const Spacer(),
+          Builder(
+            builder: (BuildContext context) {
+              return IconButton(
+                icon: const Icon(Icons.notifications_none),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('通知按钮被点击！')),
+                  );
+                },
               );
-            }).toList(),
+            }
           ),
           IconButton(
-            icon: Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward),
-            onPressed: () {
-              setState(() {
-                _sortAscending = !_sortAscending;
-              });
+            icon: const Icon(Icons.exit_to_app, color: Colors.red),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              context.go('/login'); // 登出后重定向到登录页面
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _exportToCSV,
-            tooltip: '导出为 CSV',
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => _auth.signOut(),
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore.collection('users').doc(_auth.currentUser!.uid).collection('cargo').orderBy(_sortOption, descending: !_sortAscending).snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final documents = snapshot.data!.docs;
-          return ListView.builder(
-            itemCount: documents.length,
-            itemBuilder: (context, index) {
-              final doc = documents[index];
-              return ListTile(
-                title: Text(doc['name']),
-                subtitle: Text('数量: ${doc['quantity']} - 价格: ${doc['price']}'),
-                onTap: () => _showCargoDialog(doc: doc),
-              );
-            },
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCargoDialog(),
-        child: const Icon(Icons.add),
+    );
+  }
+
+  Widget _buildStatsCard() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Container(
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('今日出货统计', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(
+                  children: [
+                    Text('3', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                    Text('车次', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  ],
+                ),
+                Column(
+                  children: [
+                    Text('67', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                    Text('货品', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  ],
+                ),
+                Column(
+                  children: [
+                    Text('1,258', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                    Text('总数量', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  String _getSortOptionName(String option) {
-    switch (option) {
-      case 'name':
-        return '名称';
-      case 'price':
-        return '价格';
-      case 'quantity':
-        return '数量';
-      default:
-        return '';
-    }
-  }
-
-  Future<void> _exportToCSV() async {
-    final cargoCollection = await _firestore
-        .collection('users')
-        .doc(_auth.currentUser!.uid)
-        .collection('cargo')
-        .orderBy(_sortOption, descending: !_sortAscending)
-        .get();
-
-    final List<List<dynamic>> rows = [];
-    rows.add(['名称', '数量', '价格']); // Header
-
-    for (final doc in cargoCollection.docs) {
-      rows.add([doc['name'], doc['quantity'], doc['price']]);
-    }
-
-    final String csv = const ListToCsvConverter().convert(rows);
-    final Uint8List bytes = Uint8List.fromList(csv.codeUnits);
-
-    await FileSaver.instance.saveFile(
-      name: '货物列表.csv',
-      bytes: bytes,
-      mimeType: MimeType.csv,
-    );
-  }
-
-  void _showCargoDialog({DocumentSnapshot? doc}) {
-    final nameController = TextEditingController(text: doc != null ? doc['name'] : '');
-    final quantityController = TextEditingController(text: doc != null ? doc['quantity'].toString() : '');
-    final priceController = TextEditingController(text: doc != null ? doc['price'].toString() : '');
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(doc != null ? '编辑货物' : '添加货物'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+  Widget _buildVehicleSelection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: '名称'),
-              ),
-              TextField(
-                controller: quantityController,
-                decoration: const InputDecoration(labelText: '数量'),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: priceController,
-                decoration: const InputDecoration(labelText: '价格'),
-                keyboardType: TextInputType.number,
+              const Text('选择车次', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Builder(
+                builder: (BuildContext context) {
+                  return TextButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('新建车次按钮被点击！')),
+                      );
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('新建车次'),
+                  );
+                }
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _buildVehicleChip('第一车 (23)', isSelected: true),
+                _buildVehicleChip('第二车 (18)'),
+                _buildVehicleChip('第三车 (26)'),
+                _buildVehicleChip('+ 新车次', isNew: true),
+              ],
             ),
-            ElevatedButton(
-              onPressed: () {
-                final name = nameController.text;
-                final quantity = int.tryParse(quantityController.text) ?? 0;
-                final price = double.tryParse(priceController.text) ?? 0.0;
+          ),
+        ],
+      ),
+    );
+  }
 
-                if (name.isNotEmpty) {
-                  if (doc != null) {
-                    _firestore
-                        .collection('users')
-                        .doc(_auth.currentUser!.uid)
-                        .collection('cargo')
-                        .doc(doc.id)
-                        .update({
-                      'name': name,
-                      'quantity': quantity,
-                      'price': price,
-                    });
-                  } else {
-                    _firestore
-                        .collection('users')
-                        .doc(_auth.currentUser!.uid)
-                        .collection('cargo')
-                        .add({
-                      'name': name,
-                      'quantity': quantity,
-                      'price': price,
-                    });
-                  }
-                  Navigator.of(context).pop();
-                }
+  Widget _buildVehicleChip(String label, {bool isSelected = false, bool isNew = false}) {
+    return Builder(builder: (context) {
+      return Container(
+        margin: const EdgeInsets.only(right: 8),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: isSelected,
+          onSelected: (selected) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('选择了车次: $label')),
+            );
+          },
+          backgroundColor: isNew ? const Color(0xFFf8f9fa) : Colors.grey[200],
+          selectedColor: Colors.blue,
+          labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: isNew ? const BorderSide(color: Colors.grey, width: 2, style: BorderStyle.solid) : BorderSide.none,
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _buildItemManagement(BuildContext context) {
+    final itemProvider = Provider.of<ItemProvider>(context);
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('第一车 - 商品管理', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('23件商品', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () {
+              // 添加新商品逻辑
+              itemProvider.addItem(Item(
+                id: DateTime.now().millisecondsSinceEpoch.toString(),
+                itemNumber: '新货号',
+                quantity: 0,
+                imageUrl: 'https://via.placeholder.com/80x64', // 默认图片
+              ));
+            },
+            icon: const Icon(Icons.camera_alt),
+            label: const Text('点击添加商品图片'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: Colors.blue, width: 2, style: BorderStyle.solid),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 使用 Consumer 监听 ItemProvider 的变化
+          Consumer<ItemProvider>(
+            builder: (context, itemProvider, child) {
+              if (itemProvider.items.isEmpty) {
+                return const Center(child: Text('暂无商品，点击上方按钮添加'));
+              }
+              return Column(
+                children: itemProvider.items.map((item) {
+                  return _buildItemCard(context, item); // 传递 context 和 item
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItemCard(BuildContext context, Item item) {
+    final itemProvider = Provider.of<ItemProvider>(context, listen: false);
+    TextEditingController quantityController = TextEditingController(text: item.quantity.toString());
+
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Row(
+          children: [
+            Image.network(item.imageUrl, width: 80, height: 64, fit: BoxFit.cover),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('货号: ${item.itemNumber}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text('数量:'),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 80,
+                        child: TextField(
+                          controller: quantityController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onChanged: (value) {
+                            // 实时更新数量，但只有在失去焦点时才保存到 Firestore
+                            item.quantity = int.tryParse(value) ?? 0;
+                          },
+                          onSubmitted: (value) {
+                            // 在用户提交（例如，按下回车键）时保存到 Firestore
+                            itemProvider.updateItem(item);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onPressed: () {
+                itemProvider.deleteItem(item.id);
               },
-              child: const Text('保存'),
+            ),
+            IconButton(
+              icon: const Icon(Icons.save, color: Colors.blue),
+              onPressed: () {
+                // 显式保存按钮
+                itemProvider.updateItem(item);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('数量已保存！')),
+                );
+              },
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShareSection(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('生成分享截图', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey[300]!)
+            ),
+            child: Column(
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.wechat, color: Colors.green, size: 24),
+                    SizedBox(width: 8),
+                    Text('第一车出货清单', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text('📦 A001: 156件\n📦 A002: 89件\n📦 A003: 211件'),
+                const Divider(height: 24, thickness: 1),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('总计: 456件', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('2024-07-26 15:30', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('生成微信截图按钮被点击！')),
+                          );
+                        },
+                        icon: const Icon(Icons.wechat),
+                        label: const Text('生成微信截图'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('复制按钮被点击！')),
+                        );
+                      },
+                      icon: const Icon(Icons.copy),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.grey[200],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistorySection() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('历史记录', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('查看全部', style: TextStyle(color: Colors.blue)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildHistoryCard('第二车', '2024-07-25 14:30', '18件商品', '322件'),
+          _buildHistoryCard('第三车', '2024-07-24 09:15', '26件商品', '480件'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard(String title, String dateTime, String itemCount, String totalCount) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(dateTime, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(itemCount),
+                Text(totalCount, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(BuildContext context) {
+    return BottomNavigationBar(
+      items: const <BottomNavigationBarItem>[
+        BottomNavigationBarItem(
+          icon: Icon(Icons.home),
+          label: '首页',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.directions_car),
+          label: '车次',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.camera_alt),
+          label: '拍照',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.history),
+          label: '历史',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.person),
+          label: '我的',
+        ),
+      ],
+      currentIndex: 0,
+      selectedItemColor: Colors.blue,
+      unselectedItemColor: Colors.grey,
+      onTap: (index) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('底部导航栏项目 ${index} 被点击！')),
         );
       },
     );

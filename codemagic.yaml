@@ -1,0 +1,33 @@
+# This is a basic CodeMagic workflow for a Flutter iOS project.
+# For more advanced configurations, refer to the CodeMagic documentation:
+# https://docs.codemagic.io/yaml/building-flutter-apps/
+
+workflows:
+  ios-build:
+    name: iOS Build
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: latest
+    triggering:
+      # You can configure when this workflow should run, e.g., on push to main branch
+      # branches:
+      #   - main
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+
+      - name: Install iOS dependencies
+        script: |
+          cd ios
+          pod install
+
+      - name: Build iOS app
+        script: |
+          flutter build ios --release --no-codesign
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $CM_BUILD_DIR/ios/Runner.xcarchive
