@@ -4,30 +4,49 @@
 
 workflows:
   ios-build:
-    name: iOS Build
+    name: iOS Release Build
+    max_build_duration: 60
     environment:
       flutter: stable
       xcode: latest
-      cocoapods: latest
+      cocoapods: default
+      vars:
+        APP_NAME: "Runner"
     triggering:
-      # You can configure when this workflow should run, e.g., on push to main branch
-      # branches:
-      #   - main
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+        - pattern: 'develop'
+          include: true
     scripts:
-      - name: Get Flutter packages
+      - name: Flutter clean
+        script: |
+          flutter clean
+
+      - name: Get Flutter dependencies
         script: |
           flutter pub get
 
-      - name: Install iOS dependencies
+      - name: Install CocoaPods dependencies
         script: |
           cd ios
           pod install
 
-      - name: Build iOS app
+      - name: Build iOS (Release)
         script: |
           flutter build ios --release --no-codesign
 
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - $CM_BUILD_DIR/ios/Runner.xcarchive
+      - $CM_BUILD_DIR/ios/${APP_NAME}.xcarchive
+
+    publishing:
+      email:
+        recipients:
+          - your_email@example.com
+        notify:
+          success: true
+          failure: true
